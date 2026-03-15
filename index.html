@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mobile AR Camera Tool</title>
+<meta charset="utf-8">
+<title>AR Multi-Point 3D Measure</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
 
@@ -11,330 +11,209 @@ body{
 margin:0;
 overflow:hidden;
 font-family:Arial;
-background:black;
-color:white;
 }
 
-video{
+#ui{
 position:absolute;
-top:0;
-left:0;
-width:100%;
-height:100%;
-object-fit:cover;
-}
-
-canvas{
-position:absolute;
-top:0;
-left:0;
-width:100%;
-height:100%;
-}
-
-ui{
-position:absolute;
-bottom:0;
-width:100%;
-display:flex;
-justify-content:space-around;
-padding:15px;
-background:rgba(0,0,0,.4);
-}
-
-button{
-padding:12px 20px;
-border:none;
-border-radius:10px;
-font-size:16px;
-background:#00c8ff;
-color:black;
-font-weight:bold;
-}
-
-#distance{
-position:absolute;
-top:20px;
+bottom:20px;
 left:50%;
 transform:translateX(-50%);
-font-size:22px;
 background:rgba(0,0,0,.5);
 padding:10px 20px;
 border-radius:10px;
+color:white;
+}
+
+button{
+padding:10px 15px;
+margin:5px;
+font-size:16px;
+border:none;
+border-radius:6px;
 }
 
 </style>
+
 </head>
 
 <body>
 
-<video id="video" autoplay playsinline></video>
-<canvas id="overlay"></canvas>
-
-<div id="distance">Tap two points to measure</div>
-
-<ui>
-<button id="capture">Capture</button>
+<div id="ui">
+<button id="startAR">Start AR</button>
 <button id="clear">Clear</button>
-</ui>
+<div id="info">Tap to place points</div>
+</div>
 
-<script>
+<script type="module">
 
-const video = document.getElementById("video")
-const canvas = document.getElementById("overlay")
-const ctx = canvas.getContext("2d")
-const distanceLabel = document.getElementById("distance")
+import * as THREE from "https://unpkg.com/three@0.158.0/build/three.module.js"
+import { ARButton } from "https://unpkg.com/three@0.158.0/examples/jsm/webxr/ARButton.js"
 
-let points=[]
+let camera, scene, renderer
+let controller
 
-async function startCamera(){
+let hitTestSource = null
+let hitTestSourceRequested = false
 
-const stream = await navigator.mediaDevices.getUserMedia({
-video:{
-facingMode:"environment"
-},
-audio:false
+const points=[]
+const spheres=[]
+const lines=[]
+
+init()
+
+function init(){
+
+scene = new THREE.Scene()
+
+camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, .01, 20)
+
+renderer = new THREE.WebGLRenderer({antialias:true,alpha:true})
+renderer.setSize(window.innerWidth,window.innerHeight)
+renderer.xr.enabled=true
+document.body.appendChild(renderer.domElement)
+
+controller = renderer.xr.getController(0)
+controller.addEventListener("select", placePoint)
+scene.add(controller)
+
+document.getElementById("startAR").onclick=startAR
+document.getElementById("clear").onclick=clearPoints
+
+}
+
+function startAR(){
+
+document.body.appendChild(
+ARButton.createButton(renderer,{
+requiredFeatures:["hit-test"]
+})
+)
+
+renderer.setAnimationLoop(render)
+
+}
+
+function placePoint(){
+
+if(!currentHitPose) return
+
+const pos = new THREE.Vector3(
+currentHitPose.transform.position.x,
+currentHitPose.transform.position.y,
+currentHitPose.transform.position.z
+)
+
+points.push(pos)
+
+createSphere(pos)
+
+if(points.length>1){
+
+const prev = points[points.length-2]
+createLine(prev,pos)
+
+const dist = prev.distanceTo(pos)
+
+document.getElementById("info").innerText =
+"Distance: "+dist.toFixed(3)+" meters"
+
+}
+
+}
+
+function createSphere(position){
+
+const geo = new THREE.SphereGeometry(.01,16,16)
+const mat = new THREE.MeshBasicMaterial({color:0xff0000})
+
+const mesh = new THREE.Mesh(geo,mat)
+mesh.position.copy(position)
+
+scene.add(mesh)
+
+spheres.push(mesh)
+
+}
+
+function createLine(a,b){
+
+const material = new THREE.LineBasicMaterial({color:0xffff00})
+
+const geometry = new THREE.BufferGeometry().setFromPoints([a,b])
+
+const line = new THREE.Line(geometry,material)
+
+scene.add(line)
+
+lines.push(line)
+
+}
+
+function clearPoints(){
+
+points.length=0
+
+spheres.forEach(s=>scene.remove(s))
+lines.forEach(l=>scene.remove(l))
+
+spheres.length=0
+lines.length=0
+
+document.getElementById("info").innerText="Points cleared"
+
+}
+
+let currentHitPose=null
+
+function render(timestamp,frame){
+
+if(frame){
+
+const referenceSpace = renderer.xr.getReferenceSpace()
+const session = renderer.xr.getSession()
+
+if(!hitTestSourceRequested){
+
+session.requestReferenceSpace("viewer").then(space=>{
+
+session.requestHitTestSource({space}).then(source=>{
+hitTestSource = source
 })
 
-video.srcObject = stream
-
-}
-
-startCamera()
-
-function resize(){
-canvas.width=window.innerWidth
-canvas.height=window.innerHeight
-}
-
-window.addEventListener("resize",resize)
-resize()
-
-canvas.addEventListener("touchstart",tap)
-
-function tap(e){
-
-const rect = canvas.getBoundingClientRect()
-
-const x = e.touches[0].clientX - rect.left
-const y = e.touches[0].clientY - rect.top
-
-points.push({x,y})
-
-if(points.length>2){
-points=[]
-}
-
-draw()
-
-if(points.length===2){
-measure()
-}
-
-}
-
-function draw(){
-
-ctx.clearRect(0,0,canvas.width,canvas.height)
-
-ctx.fillStyle="red"
-
-points.forEach(p=>{
-ctx.beginPath()
-ctx.arc(p.x,p.y,8,0,Math.PI*2)
-ctx.fill()
 })
 
-if(points.length===2){
+session.addEventListener("end",()=>{
+hitTestSourceRequested=false
+hitTestSource=null
+})
 
-ctx.strokeStyle="yellow"
-ctx.lineWidth=4
-ctx.beginPath()
-ctx.moveTo(points[0].x,points[0].y)
-ctx.lineTo(points[1].x,points[1].y)
-ctx.stroke()
+hitTestSourceRequested=true
+
+}
+
+if(hitTestSource){
+
+const hitTestResults = frame.getHitTestResults(hitTestSource)
+
+if(hitTestResults.length){
+
+const hit = hitTestResults[0]
+currentHitPose = hit.getPose(referenceSpace)
 
 }
 
 }
 
-function measure(){
-
-const dx = points[1].x - points[0].x
-const dy = points[1].y - points[0].y
-
-const pixelDistance = Math.sqrt(dx*dx + dy*dy)
-
-const approxMM = pixelDistance * 0.26
-
-distanceLabel.innerText = approxMM.toFixed(1) + " mm (approx)"
-
 }
 
-document.getElementById("clear").onclick=()=>{
-
-points=[]
-distanceLabel.innerText="Tap two points to measure"
-draw()
-
-}
-
-document.getElementById("capture").onclick=()=>{
-
-const temp = document.createElement("canvas")
-temp.width=canvas.width
-temp.height=canvas.height
-
-const tctx = temp.getContext("2d")
-
-tctx.drawImage(video,0,0,temp.width,temp.height)
-tctx.drawImage(canvas,0,0)
-
-const img = temp.toDataURL("image/png")
-
-const link=document.createElement("a")
-link.href=img
-link.download="capture.png"
-link.click()
+renderer.render(scene,camera)
 
 }
 
 </script>
 
 </body>
-</html> bg-cyan-400 rounded-full animate-pulse shadow-[0_0_8px_#00f2ff]"></div>
-                <div class="flex flex-col">
-                    <span class="text-[9px] mono font-bold text-zinc-500 uppercase tracking-widest">Stream: Active</span>
-                    <span id="coord-out" class="text-xs mono font-bold">CALIBRATING GPS...</span>
-                </div>
-            </div>
-            <button class="glass-panel w-12 h-12 rounded-2xl flex items-center justify-center">
-                <i data-lucide="maximize" class="w-5 h-5"></i>
-            </button>
-        </div>
-
-        <!-- Center Reticle -->
-        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
-            <div class="relative w-24 h-24 border border-white/10 rounded-full flex items-center justify-center">
-                <div class="absolute inset-0 border-2 border-cyan-500/20 rounded-full animate-[ping_3s_infinite]"></div>
-                <div class="w-1 h-1 bg-cyan-400 rounded-full"></div>
-                <div class="absolute -top-4 text-[8px] mono font-bold text-cyan-400/60 tracking-widest uppercase">Depth Sensor</div>
-            </div>
-        </div>
-
-        <!-- Measurements Panel -->
-        <div class="absolute bottom-10 left-6 right-6 flex flex-col gap-4 pointer-events-auto">
-            <div class="flex justify-between items-end">
-                <div class="glass-panel p-4 rounded-3xl w-32 aspect-square flex flex-col justify-between">
-                    <div class="w-full h-1/2 border-l border-b border-cyan-500/30"></div>
-                    <div class="text-[8px] mono text-zinc-500 uppercase font-bold tracking-tighter">Spatial Grid v4.0</div>
-                </div>
-
-                <button class="w-24 h-24 rounded-full bg-white flex items-center justify-center shadow-[0_0_50px_rgba(255,255,255,0.3)] active:scale-90 transition-transform">
-                    <div class="w-20 h-20 border-2 border-black rounded-full flex items-center justify-center">
-                        <div class="w-6 h-6 bg-black rounded-lg"></div>
-                    </div>
-                </button>
-
-                <div class="flex flex-col gap-3">
-                    <button class="glass-panel w-12 h-12 rounded-full flex items-center justify-center">
-                        <i data-lucide="undo-2" class="w-5 h-5"></i>
-                    </button>
-                    <button class="glass-panel w-12 h-12 rounded-full flex items-center justify-center">
-                        <i data-lucide="layers" class="w-5 h-5"></i>
-                    </button>
-                </div>
-            </div>
-
-            <div class="glass-panel p-5 rounded-3xl flex justify-between items-center border-t border-white/20">
-                <div class="flex gap-8">
-                    <div class="flex flex-col">
-                        <span class="text-[8px] mono font-bold text-zinc-500 tracking-widest uppercase mb-1">Dimension</span>
-                        <span class="text-lg font-black tracking-tighter">0.00 <span class="text-xs font-normal text-zinc-400">cm</span></span>
-                    </div>
-                    <div class="w-px h-8 bg-white/10 self-center"></div>
-                    <div class="flex flex-col">
-                        <span class="text-[8px] mono font-bold text-zinc-500 tracking-widest uppercase mb-1">Precision</span>
-                        <span class="text-lg font-black tracking-tighter text-cyan-400">98.2<span class="text-xs font-normal">%</span></span>
-                    </div>
-                </div>
-                <i data-lucide="cpu" class="w-5 h-5 text-zinc-600"></i>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        lucide.createIcons();
-
-        const authGate = document.getElementById('auth-gate');
-        const mainHud = document.getElementById('main-hud');
-        const helpDrawer = document.getElementById('help-drawer');
-        const initBtn = document.getElementById('init-engine');
-        const video = document.getElementById('camera-feed');
-        const camRow = document.getElementById('row-camera');
-        const locRow = document.getElementById('row-location');
-
-        function toggleHelp(show) {
-            if (show) {
-                helpDrawer.classList.add('active');
-            } else {
-                helpDrawer.classList.remove('active');
-            }
-        }
-
-        async function attemptAuth() {
-            initBtn.innerText = "LINKING HARDWARE...";
-            initBtn.classList.add('permission-pulse');
-            initBtn.disabled = true;
-
-            try {
-                // Request Camera
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment' }, 
-                    audio: false 
-                });
-                
-                // Update UI State for Camera Success
-                camRow.querySelector('.status-indicator').classList.replace('bg-zinc-700', 'bg-cyan-400');
-                camRow.querySelector('.status-indicator').classList.add('shadow-[0_0_8px_#00f2ff]');
-                camRow.querySelector('.mono').innerText = "LINK ESTABLISHED";
-                camRow.classList.remove('opacity-50');
-
-                // Request Location (Non-blocking)
-                navigator.geolocation.getCurrentPosition((pos) => {
-                    locRow.querySelector('.status-indicator').classList.replace('bg-zinc-700', 'bg-cyan-400');
-                    locRow.querySelector('.mono').innerText = "SAT-LINK VERIFIED";
-                    locRow.classList.remove('opacity-50');
-                    document.getElementById('coord-out').innerText = `${pos.coords.latitude.toFixed(4)}N ${pos.coords.longitude.toFixed(4)}W`;
-                });
-
-                // Transition to Main HUD
-                video.srcObject = stream;
-                setTimeout(() => {
-                    authGate.classList.add('opacity-0');
-                    video.style.opacity = '1';
-                    setTimeout(() => {
-                        authGate.style.display = 'none';
-                        mainHud.classList.replace('opacity-0', 'opacity-100');
-                    }, 700);
-                }, 1000);
-
-            } catch (err) {
-                console.error(err);
-                // Handle Permission Denied
-                initBtn.innerText = "ACCESS BLOCKED";
-                initBtn.classList.replace('bg-cyan-500', 'bg-red-500');
-                initBtn.classList.remove('permission-pulse');
-                
-                camRow.querySelector('.status-indicator').classList.replace('bg-zinc-700', 'bg-red-500');
-                camRow.querySelector('.mono').innerText = "PERMISSION DENIED";
-                camRow.querySelector('.mono').classList.add('text-red-500');
-                
-                setTimeout(() => toggleHelp(true), 500);
-            }
-        }
-
-        initBtn.addEventListener('click', attemptAuth);
+</html>'click', attemptAuth);
 
         // Micro-interactions
         document.addEventListener('touchstart', (e) => {
