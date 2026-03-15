@@ -1,214 +1,208 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Nexus AR Precision | Protocol X</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Plus+Jakarta+Sans:wght@300;400;600;800&display=swap');
-        
-        :root {
-            --primary-neon: #00f2ff;
-            --accent-purple: #7000ff;
-            --glass-bg: rgba(10, 10, 15, 0.7);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --warning-amber: #ffaa00;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mobile AR Camera Tool</title>
 
-        body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            background: #050508;
-            color: #fff;
-            overflow: hidden;
-            margin: 0;
-            height: 100vh;
-        }
+<style>
 
-        .mono { font-family: 'JetBrains Mono', monospace; }
+body{
+margin:0;
+overflow:hidden;
+font-family:Arial;
+background:black;
+color:white;
+}
 
-        .glass-panel {
-            background: var(--glass-bg);
-            backdrop-filter: blur(20px) saturate(160%);
-            -webkit-backdrop-filter: blur(20px) saturate(160%);
-            border: 1px solid var(--glass-border);
-        }
+video{
+position:absolute;
+top:0;
+left:0;
+width:100%;
+height:100%;
+object-fit:cover;
+}
 
-        .system-card {
-            background: linear-gradient(135deg, rgba(20,20,30,0.95) 0%, rgba(10,10,15,0.98) 100%);
-            border: 1px solid rgba(255,255,255,0.05);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        }
+canvas{
+position:absolute;
+top:0;
+left:0;
+width:100%;
+height:100%;
+}
 
-        .permission-pulse {
-            animation: soft-pulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
-        }
+ui{
+position:absolute;
+bottom:0;
+width:100%;
+display:flex;
+justify-content:space-around;
+padding:15px;
+background:rgba(0,0,0,.4);
+}
 
-        @keyframes soft-pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(0.98); }
-        }
+button{
+padding:12px 20px;
+border:none;
+border-radius:10px;
+font-size:16px;
+background:#00c8ff;
+color:black;
+font-weight:bold;
+}
 
-        .scanline-overlay {
-            background: linear-gradient(
-                to bottom,
-                transparent 50%,
-                rgba(0, 242, 255, 0.02) 50%
-            );
-            background-size: 100% 4px;
-            pointer-events: none;
-        }
+#distance{
+position:absolute;
+top:20px;
+left:50%;
+transform:translateX(-50%);
+font-size:22px;
+background:rgba(0,0,0,.5);
+padding:10px 20px;
+border-radius:10px;
+}
 
-        .shimmer-text {
-            background: linear-gradient(90deg, #fff, #555, #fff);
-            background-size: 200% auto;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            animation: shimmer 4s linear infinite;
-        }
-
-        @keyframes shimmer {
-            to { background-position: 200% center; }
-        }
-
-        .drawer-up {
-            transform: translateY(100%);
-            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        .drawer-up.active {
-            transform: translateY(0);
-        }
-
-        #camera-feed {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            position: fixed;
-            z-index: 0;
-            filter: contrast(1.1) brightness(0.9);
-            opacity: 0;
-            transition: opacity 1s ease;
-        }
-    </style>
+</style>
 </head>
-<body class="antialiased select-none">
 
-    <!-- Background Matrix -->
-    <div class="fixed inset-0 scanline-overlay z-10"></div>
-    <video id="camera-feed" autoplay playsinline muted></video>
+<body>
 
-    <!-- Permission Logic Layer -->
-    <div id="auth-gate" class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#050508] p-6 transition-all duration-700">
-        <div class="relative w-full max-w-md">
-            <!-- Header -->
-            <div class="text-center mb-12">
-                <div class="inline-block p-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 mb-6">
-                    <div class="px-4 py-1 text-[10px] font-extrabold tracking-[0.3em] text-cyan-400 uppercase">System Integrity Check</div>
-                </div>
-                <h1 class="text-4xl font-extrabold tracking-tighter mb-4 shimmer-text">NEXUS LENS</h1>
-                <p class="text-zinc-500 text-sm max-w-[280px] mx-auto leading-relaxed">Spatial computing requires hardware authorization to map physical environments.</p>
-            </div>
+<video id="video" autoplay playsinline></video>
+<canvas id="overlay"></canvas>
 
-            <!-- Permission Stack -->
-            <div class="space-y-3 mb-10">
-                <!-- Camera Row -->
-                <div id="row-camera" class="glass-panel p-4 rounded-2xl flex items-center justify-between group cursor-pointer transition-all hover:bg-white/5">
-                    <div class="flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center">
-                            <i data-lucide="camera" class="w-5 h-5 text-zinc-400 group-hover:text-cyan-400 transition-colors"></i>
-                        </div>
-                        <div>
-                            <div class="text-xs font-bold text-zinc-300">Optic Sensor</div>
-                            <div class="text-[10px] mono text-zinc-500 uppercase tracking-widest">Awaiting Link...</div>
-                        </div>
-                    </div>
-                    <div class="status-indicator w-2 h-2 rounded-full bg-zinc-700"></div>
-                </div>
+<div id="distance">Tap two points to measure</div>
 
-                <!-- Geo Row -->
-                <div id="row-location" class="glass-panel p-4 rounded-2xl flex items-center justify-between opacity-50">
-                    <div class="flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center">
-                            <i data-lucide="map-pin" class="w-5 h-5 text-zinc-400"></i>
-                        </div>
-                        <div>
-                            <div class="text-xs font-bold text-zinc-300">Spatial Telemetry</div>
-                            <div class="text-[10px] mono text-zinc-500 uppercase tracking-widest">Locked</div>
-                        </div>
-                    </div>
-                    <div class="status-indicator w-2 h-2 rounded-full bg-zinc-700"></div>
-                </div>
-            </div>
+<ui>
+<button id="capture">Capture</button>
+<button id="clear">Clear</button>
+</ui>
 
-            <!-- Primary Action -->
-            <button id="init-engine" class="w-full py-5 rounded-2xl bg-cyan-500 text-black font-black text-xs tracking-[0.2em] uppercase shadow-[0_20px_40px_-10px_rgba(6,182,212,0.5)] active:scale-95 transition-all">
-                Initialize Protocol
-            </button>
+<script>
 
-            <!-- Secondary Help -->
-            <button onclick="toggleHelp(true)" class="w-full mt-6 py-2 text-[10px] mono font-bold text-zinc-500 hover:text-white transition-colors flex items-center justify-center gap-2">
-                <i data-lucide="help-circle" class="w-3 h-3"></i>
-                MANUAL CONFIGURATION GUIDE
-            </button>
-        </div>
-    </div>
+const video = document.getElementById("video")
+const canvas = document.getElementById("overlay")
+const ctx = canvas.getContext("2d")
+const distanceLabel = document.getElementById("distance")
 
-    <!-- Troubleshooting Drawer -->
-    <div id="help-drawer" class="drawer-up fixed inset-x-0 bottom-0 z-[110] p-4 pointer-events-none">
-        <div class="system-card w-full max-w-lg mx-auto rounded-[2.5rem] p-8 pointer-events-auto border-t border-white/10">
-            <div class="w-12 h-1.5 bg-zinc-800 rounded-full mx-auto mb-8"></div>
-            
-            <div class="flex items-start gap-6 mb-8">
-                <div class="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-                    <i data-lucide="shield-alert" class="w-7 h-7 text-amber-500"></i>
-                </div>
-                <div>
-                    <h2 class="text-xl font-bold mb-1">Authorization Denied</h2>
-                    <p class="text-zinc-400 text-xs leading-relaxed">Browser security has blocked Nexus from accessing sensors. You must manually override this in your system settings.</p>
-                </div>
-            </div>
+let points=[]
 
-            <div class="space-y-6 mb-10">
-                <div class="flex gap-4">
-                    <div class="mono text-zinc-600 text-lg font-bold">01</div>
-                    <div class="text-xs text-zinc-300 leading-relaxed">
-                        Tap the <span class="text-white font-bold inline-flex items-center gap-1"><i data-lucide="settings-2" class="w-3 h-3"></i> Lock/Settings</span> icon in your browser's address bar.
-                    </div>
-                </div>
-                <div class="flex gap-4">
-                    <div class="mono text-zinc-600 text-lg font-bold">02</div>
-                    <div class="text-xs text-zinc-300 leading-relaxed">
-                        Locate <span class="text-white font-bold">"Camera"</span> and <span class="text-white font-bold">"Location"</span> toggles and switch them to <span class="text-cyan-400">Allow</span>.
-                    </div>
-                </div>
-                <div class="flex gap-4">
-                    <div class="mono text-zinc-600 text-lg font-bold">03</div>
-                    <div class="text-xs text-zinc-300 leading-relaxed">
-                        Return here and select <span class="text-white font-bold uppercase">Hard Refresh</span> to re-establish the link.
-                    </div>
-                </div>
-            </div>
+async function startCamera(){
 
-            <div class="flex gap-3">
-                <button onclick="window.location.reload()" class="flex-1 py-4 bg-zinc-100 text-black rounded-2xl font-bold text-xs uppercase active:scale-95 transition-all">
-                    Hard Refresh
-                </button>
-                <button onclick="toggleHelp(false)" class="px-8 py-4 bg-zinc-900 border border-white/10 text-white rounded-2xl font-bold text-xs uppercase active:scale-95 transition-all">
-                    Dismiss
-                </button>
-            </div>
-        </div>
-    </div>
+const stream = await navigator.mediaDevices.getUserMedia({
+video:{
+facingMode:"environment"
+},
+audio:false
+})
 
-    <!-- MAIN HUD UI -->
-    <div id="main-hud" class="fixed inset-0 z-50 pointer-events-none opacity-0 transition-opacity duration-1000">
-        <!-- Top Bar -->
-        <div class="p-6 flex justify-between items-start pointer-events-auto">
-            <div class="glass-panel px-4 py-3 rounded-2xl flex items-center gap-3">
-                <div class="w-2 h-2 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_8px_#00f2ff]"></div>
+video.srcObject = stream
+
+}
+
+startCamera()
+
+function resize(){
+canvas.width=window.innerWidth
+canvas.height=window.innerHeight
+}
+
+window.addEventListener("resize",resize)
+resize()
+
+canvas.addEventListener("touchstart",tap)
+
+function tap(e){
+
+const rect = canvas.getBoundingClientRect()
+
+const x = e.touches[0].clientX - rect.left
+const y = e.touches[0].clientY - rect.top
+
+points.push({x,y})
+
+if(points.length>2){
+points=[]
+}
+
+draw()
+
+if(points.length===2){
+measure()
+}
+
+}
+
+function draw(){
+
+ctx.clearRect(0,0,canvas.width,canvas.height)
+
+ctx.fillStyle="red"
+
+points.forEach(p=>{
+ctx.beginPath()
+ctx.arc(p.x,p.y,8,0,Math.PI*2)
+ctx.fill()
+})
+
+if(points.length===2){
+
+ctx.strokeStyle="yellow"
+ctx.lineWidth=4
+ctx.beginPath()
+ctx.moveTo(points[0].x,points[0].y)
+ctx.lineTo(points[1].x,points[1].y)
+ctx.stroke()
+
+}
+
+}
+
+function measure(){
+
+const dx = points[1].x - points[0].x
+const dy = points[1].y - points[0].y
+
+const pixelDistance = Math.sqrt(dx*dx + dy*dy)
+
+const approxMM = pixelDistance * 0.26
+
+distanceLabel.innerText = approxMM.toFixed(1) + " mm (approx)"
+
+}
+
+document.getElementById("clear").onclick=()=>{
+
+points=[]
+distanceLabel.innerText="Tap two points to measure"
+draw()
+
+}
+
+document.getElementById("capture").onclick=()=>{
+
+const temp = document.createElement("canvas")
+temp.width=canvas.width
+temp.height=canvas.height
+
+const tctx = temp.getContext("2d")
+
+tctx.drawImage(video,0,0,temp.width,temp.height)
+tctx.drawImage(canvas,0,0)
+
+const img = temp.toDataURL("image/png")
+
+const link=document.createElement("a")
+link.href=img
+link.download="capture.png"
+link.click()
+
+}
+
+</script>
+
+</body>
+</html> bg-cyan-400 rounded-full animate-pulse shadow-[0_0_8px_#00f2ff]"></div>
                 <div class="flex flex-col">
                     <span class="text-[9px] mono font-bold text-zinc-500 uppercase tracking-widest">Stream: Active</span>
                     <span id="coord-out" class="text-xs mono font-bold">CALIBRATING GPS...</span>
